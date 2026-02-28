@@ -1,11 +1,8 @@
 package me.lorenzo.leaderboards;
 
-import me.lorenzo.leaderboards.rest.RestConfig;
-import me.lorenzo.leaderboards.rest.RestServer;
 import me.lorenzo.leaderboards.storage.StorageProvider;
 import me.lorenzo.leaderboards.storage.impl.InMemoryStorage;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -18,46 +15,36 @@ import java.util.function.Consumer;
  * The implementor decides which field is the score, which is the identity key,
  * and what other fields exist.
  *
+ * REST is managed at the LeaderboardService level so that multiple leaderboards
+ * can share a single HTTP server. Register leaderboards on a LeaderboardService
+ * and call leaderboardService.withRest(port).
+ *
  * Usage:
  * <pre>
- *   Leaderboard lb = Leaderboard.create("kills")
- *       .scoreField("kills")
- *       .identityField("player")       // upsert by player name
- *       .withRest(8080)
- *       .build();
+ *   LeaderboardService svc = new LeaderboardService().withRest(8080);
  *
- *   lb.submit(e -> e.field("player", "Steve").field("kills", 150).field("deaths", 3));
+ *   svc.register(Leaderboard.create("kills")
+ *       .scoreField("kills").identityField("player").build());
  *
- *   lb.top(10);
- *   lb.rankOf("player", "Steve");
- *   lb.findBy("player", "Steve");
+ *   svc.register(Leaderboard.create("deaths")
+ *       .scoreField("deaths").identityField("player").build());
+ *
+ *   // GET /kills/top?limit=10
+ *   // GET /deaths/rank?player=Steve
  * </pre>
  */
 public class Leaderboard {
 
     private final String name;
     private final String scoreField;
-    private final String identityField;   // nullable — if set, submit() behaves as upsert
+    private final String identityField;   // nullable
     private final StorageProvider storage;
-    private final RestServer restServer;  // nullable
 
     private Leaderboard(Builder builder) {
         this.name = builder.name;
         this.scoreField = builder.scoreField;
         this.identityField = builder.identityField;
         this.storage = builder.storage;
-
-        if (builder.restConfig != null) {
-            this.restServer = new RestServer(this, builder.restConfig);
-            try {
-                this.restServer.start();
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to start REST server on port "
-                        + builder.restConfig.port(), e);
-            }
-        } else {
-            this.restServer = null;
-        }
     }
 
     public static Builder create(String name) {
@@ -70,7 +57,7 @@ public class Leaderboard {
 
     /**
      * Submits an entry.
-     * If an identityField is configured and an entry with the same identity value
+     * If identityField is configured and an entry with the same identity value
      * already exists, it is replaced (upsert). Otherwise a new entry is appended.
      */
     public void submit(LeaderboardEntry entry) {
@@ -114,7 +101,7 @@ public class Leaderboard {
     }
 
     /**
-     * Sets the score of an entry to an absolute value.
+     * Sets the score of an entry to an absolute value, preserving all other fields.
      * Requires identityField to be configured.
      */
     public void setScore(Object identityValue, double score) {
@@ -154,9 +141,7 @@ public class Leaderboard {
         return storage.findBy(field, value);
     }
 
-    /**
-     * Returns the 1-based rank of the entry matching field=value, or -1 if not found.
-     */
+    /** Returns the 1-based rank of the entry matching field=value, or -1 if not found. */
     public long rankOf(String field, Object value) {
         List<LeaderboardEntry> all = storage.getTopSortedBy(scoreField, Integer.MAX_VALUE);
         for (int i = 0; i < all.size(); i++) {
@@ -170,24 +155,11 @@ public class Leaderboard {
     }
 
     // -------------------------------------------------------------------------
-    // Lifecycle
+    // Accessors
     // -------------------------------------------------------------------------
 
-    public void stop() {
-        if (restServer != null) restServer.stop();
-    }
-
-    // -------------------------------------------------------------------------
-    // Accessors (used by RestServer)
-    // -------------------------------------------------------------------------
-
-    public String name()        { return name; }
-    public String scoreField()  { return scoreField; }
-
-    private double toDouble(Object v) {
-        if (v instanceof Number n) return n.doubleValue();
-        return 0;
-    }
+    public String name()       { return name; }
+    public String scoreField() { return scoreField; }
 
     // -------------------------------------------------------------------------
     // Builder
@@ -199,16 +171,12 @@ public class Leaderboard {
         private String scoreField = "score";
         private String identityField = null;
         private StorageProvider storage = new InMemoryStorage();
-        private RestConfig restConfig = null;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "Leaderboard name is required");
         }
 
-        /**
-         * The field used as the numeric score for ranking.
-         * Default: "score".
-         */
+        /** The field used as the numeric score for ranking. Default: "score". */
         public Builder scoreField(String field) {
             this.scoreField = Objects.requireNonNull(field);
             return this;
@@ -223,31 +191,19 @@ public class Leaderboard {
             return this;
         }
 
-        /**
-         * Plugs in a custom storage backend.
-         * Default: InMemoryStorage.
-         */
+        /** Plugs in a custom storage backend. Default: InMemoryStorage. */
         public Builder withStorage(StorageProvider storage) {
             this.storage = Objects.requireNonNull(storage);
-            return this;
-        }
-
-        /**
-         * Starts a GET-only REST server on the given port.
-         * Endpoints: /top, /entry, /rank, /size.
-         */
-        public Builder withRest(int port) {
-            this.restConfig = RestConfig.on(port);
-            return this;
-        }
-
-        public Builder withRest(RestConfig config) {
-            this.restConfig = Objects.requireNonNull(config);
             return this;
         }
 
         public Leaderboard build() {
             return new Leaderboard(this);
         }
+    }
+
+    private double toDouble(Object v) {
+        if (v instanceof Number n) return n.doubleValue();
+        return 0;
     }
 }
