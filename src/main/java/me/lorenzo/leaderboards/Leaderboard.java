@@ -88,6 +88,52 @@ public class Leaderboard {
         submit(builder.build());
     }
 
+    /**
+     * Adds delta to the score of the entry identified by the configured identityField.
+     * If the entry doesn't exist yet, creates it with just the identity + score fields.
+     * Requires identityField to be configured.
+     *
+     * Example: lb.addScore("Steve", 10);
+     */
+    public void addScore(Object identityValue, double delta) {
+        if (identityField == null) throw new IllegalStateException(
+                "addScore() requires identityField to be configured on the leaderboard");
+
+        Optional<LeaderboardEntry> existing = storage.findBy(identityField, identityValue);
+        LeaderboardEntry.Builder builder = LeaderboardEntry.of();
+
+        if (existing.isPresent()) {
+            existing.get().asMap().forEach(builder::field);
+        } else {
+            builder.field(identityField, identityValue);
+        }
+
+        double current = existing.map(e -> toDouble(e.get(scoreField))).orElse(0.0);
+        builder.field(scoreField, current + delta);
+        submit(builder.build());
+    }
+
+    /**
+     * Sets the score of an entry to an absolute value.
+     * Requires identityField to be configured.
+     */
+    public void setScore(Object identityValue, double score) {
+        if (identityField == null) throw new IllegalStateException(
+                "setScore() requires identityField to be configured on the leaderboard");
+
+        Optional<LeaderboardEntry> existing = storage.findBy(identityField, identityValue);
+        LeaderboardEntry.Builder builder = LeaderboardEntry.of();
+
+        if (existing.isPresent()) {
+            existing.get().asMap().forEach(builder::field);
+        } else {
+            builder.field(identityField, identityValue);
+        }
+
+        builder.field(scoreField, score);
+        submit(builder.build());
+    }
+
     public void remove(String field, Object value) {
         storage.removeBy(field, value);
     }
@@ -135,8 +181,13 @@ public class Leaderboard {
     // Accessors (used by RestServer)
     // -------------------------------------------------------------------------
 
-    public String name() { return name; }
-    public String scoreField() { return scoreField; }
+    public String name()        { return name; }
+    public String scoreField()  { return scoreField; }
+
+    private double toDouble(Object v) {
+        if (v instanceof Number n) return n.doubleValue();
+        return 0;
+    }
 
     // -------------------------------------------------------------------------
     // Builder
