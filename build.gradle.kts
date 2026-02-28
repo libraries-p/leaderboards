@@ -16,7 +16,7 @@ dependencies {
 
     implementation("com.github.libraries-p:persistence:24ca60cf5e")
     implementation("com.github.libraries-p:services:3585e64ee0")
-    implementation("com.github.libraries-p:shelf:803c9713f7")
+    implementation("com.github.libraries-p:shelf:683ed0cb23")
 
     compileOnly("org.projectlombok:lombok:1.18.36")
     annotationProcessor("org.projectlombok:lombok:1.18.36")
